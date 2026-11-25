@@ -1,0 +1,9 @@
+Package: com.local.xray
+Name: Xray
+Version: 0.1.0
+Architecture: iphoneos-arm
+Description: Process and kernel inspector for jailbroken iOS 6 (Easy and Pro views)
+Maintainer: you
+Author: you
+Section: Utilities
+Depends: firmware (>= 6.0)
