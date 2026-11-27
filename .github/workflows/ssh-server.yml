@@ -10,7 +10,7 @@ jobs:
       - name: Checkout repository code
         uses: actions/checkout@v4
 
-      - name: Start SSH Tunnel
-        uses: mxschmitt/action-tmate@v3
+      - name: Start Upterm SSH Server
+        uses: owenthereal/action-upterm@v1
         with:
           limit-access-to-actor: true
