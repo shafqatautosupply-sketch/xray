@@ -15,6 +15,66 @@ jobs:
           cd ld
           sed -i 's/HMAC_CTX\thmacCTX;/HMAC_CTX\t*hmacCTX;/' includes/dmg/filevault.h
           sed -i 's/&(info->hmacCTX)/info->hmacCTX/g; s/HMAC_CTX_cleanup(/HMAC_CTX_free(/; s/HMAC_CTX_init(info->hmacCTX);/info->hmacCTX = HMAC_CTX_new();/' dmg/filevault.c
+          python3 - <<'PYEOF'
+          import sys
+          p = "hfs/hfscompress.c"
+          s = open(p).read()
+          old1 = """\t\tdata->cached = (uint8_t*) malloc(data->decmpfs->size);
+          \t\tactualSize = data->decmpfs->size;
+          \t\tuncompress(data->cached, &actualSize, data->decmpfs->data, data->decmpfsSize - sizeof(HFSPlusDecmpfs));
+          \t\tif(actualSize != data->decmpfs->size) {
+          \t\t\tfprintf(stderr, "decmpfs: size mismatch\\n");
+          \t\t}
+          """
+          new1 = """\t\t{
+          \t\t\tuint8_t* src = (uint8_t*) data->decmpfs->data;
+          \t\t\tsize_t srcLen = data->decmpfsSize - sizeof(HFSPlusDecmpfs);
+          \t\t\tsize_t want = data->decmpfs->size;
+          \t\t\tdata->cached = (uint8_t*) calloc(want ? want : 1, 1);
+          \t\t\tactualSize = want;
+          \t\t\tif(srcLen > 0 && src[0] == 0xFF) {
+          \t\t\t\tactualSize = srcLen - 1;
+          \t\t\t\tif(actualSize > want) actualSize = want;
+          \t\t\t\tmemcpy(data->cached, src + 1, actualSize);
+          \t\t\t} else if(uncompress(data->cached, &actualSize, src, srcLen) != Z_OK) {
+          \t\t\t\tactualSize = 0;
+          \t\t\t}
+          \t\t\tif(actualSize != want) {
+          \t\t\t\tprintf("decmpfs: size mismatch (got %lu want %lu), zero-filled\\n", (unsigned long) actualSize, (unsigned long) want);
+          \t\t\t\tactualSize = want;
+          \t\t\t}
+          \t\t}
+          """
+          assert old1 in s; s = s.replace(old1, new1)
+          old2 = """\t\tdata->cached = (uint8_t*) malloc(0x10000);
+          \t\tactualSize = 0x10000;
+          \t\tuncompress(data->cached, &actualSize, compressed, data->blocks->blocks[block].size);
+          """
+          new2 = """\t\tdata->cached = (uint8_t*) calloc(0x10000, 1);
+          \t\tactualSize = 0x10000;
+          \t\tif(data->blocks->blocks[block].size > 0 && compressed[0] == 0xFF) {
+          \t\t\tactualSize = data->blocks->blocks[block].size - 1;
+          \t\t\tif(actualSize > 0x10000) actualSize = 0x10000;
+          \t\t\tmemcpy(data->cached, compressed + 1, actualSize);
+          \t\t} else if(uncompress(data->cached, &actualSize, compressed, data->blocks->blocks[block].size) != Z_OK) {
+          \t\t\tprintf("decmpfs: block %u failed, zero-filled\\n", block);
+          \t\t\tactualSize = 0x10000;
+          \t\t}
+          """
+          assert old2 in s; s = s.replace(old2, new2)
+          old3 = """\t\tuint32_t block = location / 0x10000;
+          """
+          new3 = """\t\tuint32_t block = location / 0x10000;
+          \t\tif(data->blocks == NULL || block >= data->blocks->numBlocks) {
+          \t\t\tprintf("decmpfs: read past blocks, zero-filling\\n");
+          \t\t\tmemset(buffer, 0, size);
+          \t\t\treturn TRUE;
+          \t\t}
+          """
+          assert old3 in s; s = s.replace(old3, new3)
+          open(p, "w").write(s)
+          print("patched")
+          PYEOF
           mkdir b && cd b && cmake .. -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && make -j4 dmg-bin hfsplus
       - name: Download IPSW and pull the root filesystem
         run: |
@@ -28,6 +88,8 @@ jobs:
           mkdir rootfs
           ./ld/b/hfs/hfsplus rootfs.hfs extractall / rootfs > extract.log
           tail -3 extract.log
+          echo "decmpfs notes: $(grep -c decmpfs extract.log || true)"
+          grep decmpfs extract.log | head -20 || true
       - name: Build manifest
         run: |
           cd rootfs
