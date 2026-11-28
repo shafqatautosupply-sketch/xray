@@ -1,0 +1,16 @@
+name: Start SSH Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ssh-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      - name: Start Upterm SSH Server
+        uses: owenthereal/action-upterm@v1
+        with:
+          limit-access-to-actor: true
